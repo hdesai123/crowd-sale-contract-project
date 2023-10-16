@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "./MyToken.sol";
+
+contract Crowdsale {
+    address public beneficiary;
+    uint256 public fundingGoal;
+    uint256 public deadline;
+    uint256 public price;
+    uint256 public fundingRaised;
+    MyToken public tokenReward;
+
+    mapping(address => uint256) public balanceOf;
+    bool public crowdsaleClosed;
+
+    event GoalReached(address recipient, uint256 totalAmountRaised);
+    event FundTransfer(address backer, uint256 amount, bool isContribution);
+
+    constructor(
+        address ifSuccessfulSendTo,
+        uint256 fundingGoalInEthers,
+        uint256 durationInMinutes,
+        uint256 etherCostOfEachToken,
+        address addressOfTokenUsedAsReward
+    ) {
+        beneficiary = ifSuccessfulSendTo;
+        fundingGoal = fundingGoalInEthers * 1 ether;
+        deadline = block.timestamp + durationInMinutes * 1 minutes;
+        price = etherCostOfEachToken * 1 ether;
+        tokenReward = MyToken(addressOfTokenUsedAsReward);
+    }
+
+    function () external payable {
+        require(!crowdsaleClosed, "The crowdsale is closed");
+        uint256 amount = msg.value;
+        balanceOf[msg.sender] += amount;
+        fundingRaised += amount;
+        tokenReward.transfer(msg.sender, amount / price);
+        emit FundTransfer(msg.sender, amount, true);
+    }
+
+    modifier afterDeadline() {
+        if (block.timestamp >= deadline)
+            _;
+    }
+
+    function checkGoalReached() public afterDeadline {
+        if (fundingRaised >= fundingGoal) {
+            emit GoalReached(beneficiary, fundingRaised);
+        }
+        crowdsaleClosed = true;
+    }
+
+    function safeWithdrawal() public afterDeadline {
+        if (fundingRaised >= fundingGoal) {
+            beneficiary.transfer(address(this).balance);
+            emit FundTransfer(beneficiary, address(this).balance, false);
+        } else {
+            uint256 amount = balanceOf[msg.sender];
+            balanceOf[msg.sender] = 0;
+            if (amount > 0) {
+                if (msg.sender.send(amount)) {
+                    emit FundTransfer(msg.sender, amount, false);
+                } else {
+                    balanceOf[msg.sender] = amount;
+                }
+            }
+        }
+    }
+}
